@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const fs = require('fs');
 const ws = new WebSocket('wss://sim3.psim.us/showdown/websocket');
 
 const BOT_NAME = 'CryoxeticBotX2';
@@ -10,6 +11,19 @@ let quotes = [];
 const AUTH_RANKS = ['~', '&', '@', '%', '#', '★', '*', '+'];
 const CRYOXETIC_NAME = 'Cryoxetic';
 
+const roomJoinTime = {};
+
+// Load quotes from file
+try {
+  quotes = JSON.parse(fs.readFileSync('quotes.json', 'utf8'));
+} catch {
+  quotes = [];
+}
+
+function saveQuotes() {
+  fs.writeFileSync('quotes.json', JSON.stringify(quotes, null, 2));
+}
+
 ws.on('open', () => {
   console.log('✅ Connected to Pokémon Showdown');
 });
@@ -19,6 +33,9 @@ ws.on('message', (data) => {
   for (const line of lines) {
     if (line.startsWith('>') && !line.startsWith('>|')) {
       currentRoom = line.slice(1).trim();
+      if (!(currentRoom in roomJoinTime)) {
+        roomJoinTime[currentRoom] = Math.floor(Date.now() / 1000); // Use seconds
+      }
     }
 
     if (line.startsWith('|challstr|')) {
@@ -48,8 +65,11 @@ ws.on('message', (data) => {
 
     if (line.startsWith('|c:|')) {
       const parts = line.split('|');
+      const timestamp = parseInt(parts[2]);
       const user = parts[3]?.trim();
       const message = parts[4]?.trim();
+
+      if (timestamp < roomJoinTime[currentRoom]) continue;
       if (user && message && currentRoom) {
         handleCommand(currentRoom, user, message);
       }
@@ -85,7 +105,6 @@ function handleCommand(target, user, message, isPM = false) {
 
   const cleaned = message.trim().replace(/^\[+/, '[');
 
-  // Only respond to auth or Cryoxetic
   const rank = user.charAt(0);
   const username = AUTH_RANKS.includes(rank) ? user.slice(1) : user;
   const isCryoxetic = username.toLowerCase() === CRYOXETIC_NAME.toLowerCase();
@@ -95,6 +114,7 @@ function handleCommand(target, user, message, isPM = false) {
     const quote = cleaned.slice(11).trim();
     if (quote.length > 0) {
       quotes.push(quote);
+      saveQuotes();
       reply(`Quote #${quotes.length} added.`);
     } else {
       reply('Please provide a quote to add.');
@@ -116,6 +136,7 @@ function handleCommand(target, user, message, isPM = false) {
     const index = parseInt(cleaned.slice(14).trim());
     if (!isNaN(index) && index >= 1 && index <= quotes.length) {
       const removed = quotes.splice(index - 1, 1);
+      saveQuotes();
       reply(`Removed quote #${index}: "${removed[0]}"`);
     } else {
       reply('Invalid quote number.');
@@ -135,11 +156,20 @@ function handleCommand(target, user, message, isPM = false) {
 
   if (cleaned.startsWith('[say')) {
     const text = cleaned.slice(4).trim();
-    if (text.length > 0) {
-      reply(text);
-    } else {
-      reply('Say what?');
-    }
+    reply(text.length > 0 ? text : 'Say what?');
+    return;
+  }
+
+  if (cleaned === '[help') {
+    reply(
+      "!code\nAvailable commands:\n" +
+      "[quote add your quote]\n" +
+      "[quote #] — show specific quote\n" +
+      "[quote remove #] — delete quote\n" +
+      "[quotelist] — list all quotes\n" +
+      "[say text] — echo text\n" +
+      "[ping], [hello], [celebrate], [moo], [mish], [disappointed]"
+    );
     return;
   }
 
